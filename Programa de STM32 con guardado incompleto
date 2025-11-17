@@ -36,7 +36,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-SPI_HandleTypeDef hspi1;
 FATFS fs;
 FATFS *pfs;
 FIL fil;
@@ -76,13 +75,13 @@ static void MX_UART5_Init(void);
 void solicitar_lectura_sensor()
 {
 
-	uint8_t lectura = '1';
+	uint8_t lectura = '1'; //Bit enviado al ESP32 para pedir la lectura del sensor
     HAL_UART_Transmit(&huart5, &lectura, 1, 100);
 
-    memset(rxBuffer, 0, sizeof(rxBuffer));
+    memset(rxBuffer, 0, sizeof(rxBuffer)); //Limpiar el buffer
 
-    uint8_t b;
-    uint16_t idx = 0;
+    uint8_t b; //Almacena cada byte recibido temporalmente
+    uint16_t idx = 0; //Índice del buffer
 
     // leer hasta '\n' o hasta llenar buffer
     while (idx < sizeof(rxBuffer)-1) {
@@ -113,7 +112,10 @@ void solicitar_lectura_sensor()
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+void transmit_uart(char *string){ //Función para utilizar la SD
+	uint8_t len = strlen(string);
+	HAL_UART_Transmit(&huart2, (uint8_t*) string, len, 200);
+}
 /* USER CODE END 0 */
 
 /**
@@ -150,14 +152,14 @@ int main(void)
   MX_USART2_UART_Init();
   MX_UART5_Init();
   /* USER CODE BEGIN 2 */
-  char *msg = "STM32 listo. Presione el boton...\r\n";
+  char *msg = "STM32 listo. Presione el boton...\r\n"; //Enviar al monitor serial
   HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
 
-  LCD_Init();
+  LCD_Init(); //Inicializar la pantalla TFT
 
-  LCD_Clear(0x00);
+  LCD_Clear(0x00); //Limpiar la pantalla al conectar
 
-  LCD_Bitmap(0, 0, 320, 240, fondo);
+  LCD_Bitmap(0, 0, 320, 240, fondo); //Imagen desde la librería para el fondo
 
 
 
@@ -232,16 +234,79 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  if(HAL_GPIO_ReadPin(BTN1_GPIO_Port, BTN1_Pin) == GPIO_PIN_RESET){
-		  char msg[] = "Boton presionado: solicitando lectura...\r\n";
+	  if(HAL_GPIO_ReadPin(BTN1_GPIO_Port, BTN1_Pin) == GPIO_PIN_RESET){ //Presionar el botón de llamada
+		  char msg[] = "Boton presionado: solicitando lectura...\r\n"; //Mensaje para el monitor serial
 		  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
 
-		  solicitar_lectura_sensor();
+		  solicitar_lectura_sensor(); //Se llama a la función para poner el dato en el monitor serial y la pantalla
+		  HAL_Delay(300);  // anti-rebote
+	  }
+
+	  if(HAL_GPIO_ReadPin(BTN2_GPIO_Port, BTN2_Pin) == GPIO_PIN_RESET){ //Botón para guardar en archivo
+		  char msg2[] = "Boton presionado: guardando...\r\n";
+		  HAL_UART_Transmit(&huart2, (uint8_t*)msg2, strlen(msg2), 100);
+
+		  uint8_t pulso = '2';
+		  HAL_UART_Transmit(&huart5, &pulso, 1, 100);
+
+		  //Montar SD
+		  fres = f_mount(&fs,"/",0);
+		  if (fres == FR_OK) {
+		  transmit_uart("Micro SD card is mounted successfully!\n");
+		  } else if (fres != FR_OK) {
+		  transmit_uart("Micro SD card's mount error!\n");
+		  }
+
+
+
+
+		  // Montar SD solo si no está montada
+		  /*if (f_mount(&fs, "/", 0) != FR_OK) {
+		      transmit_uart("Error montando SD.\n");
+		      HAL_Delay(300);
+		      continue;
+		  }
+
+		  // Abrir archivo en modo append (crear si no existe)
+		  fres = f_open(&fil, "LecturaProyecto3.txt", FA_OPEN_ALWAYS | FA_WRITE);
+		  if (fres != FR_OK) {
+		      transmit_uart("Error abriendo archivo.\n");
+		      f_mount(NULL, "", 1);
+		      HAL_Delay(300);
+		      continue;
+		  }
+
+		  // Ir al final del archivo
+		  f_lseek(&fil, f_size(&fil));
+
+		  // Escribir encabezado
+		  f_puts("Lectura en %% de humedad | Temperatura en C°\r\n", &fil);
+
+		  // Escribir dato recibido
+		  f_puts((char*)rxBuffer, &fil);
+		  f_puts("\r\n\r\n", &fil);
+
+		  // Cerrar archivo
+		  f_close(&fil);
+
+		  // Confirmación
+		  transmit_uart("Archivo guardado correctamente.\n");*/
+
+
+			//Desmontar unidad
+			f_mount(NULL, "", 1);
+			if (fres == FR_OK) {
+			transmit_uart("The Micro SD card is unmounted!\n");
+			} else if (fres != FR_OK) {
+			transmit_uart("The Micro SD was not unmounted!");
+			}
+
+
 		  HAL_Delay(300);  // anti-rebote
 
-
-
 	  }
+
+
 
 	  /*uint8_t estado = HAL_GPIO_ReadPin(BTN1_GPIO_Port, BTN1_Pin); // PA11
 	  char txt[32];
@@ -323,7 +388,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_256;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -461,6 +526,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : BTN2_Pin */
+  GPIO_InitStruct.Pin = BTN2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(BTN2_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : BTN1_Pin */
   GPIO_InitStruct.Pin = BTN1_Pin;
