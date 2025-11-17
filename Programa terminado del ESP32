@@ -1,0 +1,113 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_NeoPixel.h>
+
+#define AHT10_ADDR 0x38 //Valor para iniciar el sensor AHT10
+#define SDA_PIN 21 //Pines de I2C
+#define SCL_PIN 22
+#define NEOPIXEL 25 //Pin para el neopixel
+#define NUMPIXELS 1 //Cantidad de luces
+
+// put function declarations here:
+
+Adafruit_NeoPixel pixel(NUMPIXELS, NEOPIXEL, NEO_GRB + NEO_KHZ800);
+
+// ----- Inicializar AHT10 -----
+void aht10_init() {
+  Wire.beginTransmission(AHT10_ADDR);
+  Wire.write(0xE1);  // Comando de inicialización
+  Wire.write(0x08);
+  Wire.write(0x00);
+  Wire.endTransmission();
+  delay(100);
+}
+
+// ----- Leer datos del sensor AHT10 -----
+bool aht10_read(float &temperature, float &humidity) { //Función bool en caso de que la transmisión falle
+  Wire.beginTransmission(AHT10_ADDR); //Lectura necesaria para la inicialización del sensor AHT10 de acuerdo a su hoja de datos
+  Wire.write(0xAC);
+  Wire.write(0x33);
+  Wire.write(0x00);
+  Wire.endTransmission();
+  delay(80); //Delay para completar la transmisión
+
+  uint8_t count = Wire.requestFrom(AHT10_ADDR, (uint8_t)6); //Condiciones para recibir los 6 bytes del sensor
+  if (count != 6) return false; //En caso de que no reciba 6 bytes
+
+  uint8_t data[6]; //Crear arreglos de los 6 bytes
+  for (int i = 0; i < 6; i++) data[i] = Wire.read();
+
+  uint32_t rawHum = ((uint32_t)data[1] << 16) | //Dato de humedad cruda
+                    ((uint32_t)data[2] << 8) |  // << para mover datos a la izquierda y tomar los bits adecuados
+                     data[3];
+  rawHum >>= 4; //Se corre porque los primeros 4 bits son de temperatura, por lo que se obtienen 20 bits de humedad
+  humidity = (rawHum / 1048576.0) * 100.0; //Conversión de humedad cruda a porcentaje de humedad
+
+  uint32_t rawTemp = ((uint32_t)(data[3] & 0x0F) << 16) | //Tomar solo los últimos 4 bits
+                      ((uint32_t)data[4] << 8) |
+                       data[5];
+  temperature = (rawTemp / 1048576.0) * 200.0 - 50.0; //Conversión de temperatura cruda a grados C°
+
+  return true; //Finalizó con éxito
+}
+
+void setup() {
+  Serial.begin(115200); //Comunicación serial del ESP32
+  Serial2.begin(115200, SERIAL_8N1, 16, 17);   // UART hacia STM32
+  Wire.begin(SDA_PIN, SCL_PIN); //Incializar comunicación I2C
+  delay(40);
+  aht10_init(); //Inicializar lectura de sensor aht10
+
+  Serial.println("ESP32 listo, esperando comando por UART2...");
+
+  pixel.begin(); //Inicializar neopixel
+  pixel.clear(); //Limpiar neopixel
+  pixel.setBrightness(255); //Brillo del neopixel
+
+  pixel.setPixelColor(0, pixel.Color(0, 150, 0)); // Verde
+  pixel.show(); //Mostrar la última luz seleccionada
+
+}
+
+void loop() {
+  // ¿Hay comando desde el STM32?
+  if (Serial2.available() > 0) {
+    char lectura = Serial2.read();
+    Serial.print("Recibido por UART2: ");
+    Serial.println(lectura);
+
+    if (lectura == '1') {   // STM32 solicita lectura del sensor
+      float temp, hum;
+      bool ok = aht10_read(temp, hum);
+
+            if (!ok) { //Bloque de condición si falla del AHT10
+        Serial.println("Fallo al leer AHT10");
+        Serial2.println("ERR");
+      } else {
+        Serial.print("Enviando: ");
+        Serial.print(hum,2);
+        Serial.print("|");
+        Serial.println(temp,2);
+
+        Serial2.print(hum, 2);
+        Serial2.print("|");
+        Serial2.println(temp, 2);
+
+        pixel.setPixelColor(0, pixel.Color(150, 150, 150)); // Blanco suave
+        pixel.show();
+        delay(5000);
+
+        pixel.setPixelColor(0, pixel.Color(0, 150, 0)); // Verde
+        pixel.show();
+      }
+    }
+    if (lectura == '2'){ //Lectura del STM guardando datos
+      pixel.setPixelColor(0, pixel.Color(150, 150, 0)); // Amarillo
+      pixel.show();
+      delay(5000);
+
+      pixel.setPixelColor(0, pixel.Color(0, 150, 0)); // Verde
+      pixel.show();
+    }
+  }
+}
