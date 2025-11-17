@@ -94,8 +94,20 @@ void solicitar_lectura_sensor()
         }
     }
 
+    // Eliminar caracteres no imprimibles al final (\n, \r, etc.)
+    while (idx > 0 && (rxBuffer[idx-1] == '\n' || rxBuffer[idx-1] == '\r')) {
+        rxBuffer[idx-1] = '\0';
+        idx--;
+    }
+
+    // Asegurar que la cadena termina en null
+    rxBuffer[idx] = '\0';
+
     // Enviar al monitor serial
     HAL_UART_Transmit(&huart2, rxBuffer, idx, 100);
+
+    //Enviar a pantalla
+    LCD_Print(rxBuffer, 72, 120, 2, 0xffff, 0x244b);
 }
 /* USER CODE END PFP */
 
@@ -147,7 +159,6 @@ int main(void)
 
   LCD_Bitmap(0, 0, 320, 240, fondo);
 
-  LCD_Print("Hola Mundo", 120, 120, 1, 0xffff, 0x244b);
 
 
   //Montar sistema de archivos
